@@ -1,0 +1,3 @@
+[submodule "kerncraft"]
+	path = kerncraft
+	url = https://github.com/RRZE-HPC/kerncraft

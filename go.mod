@@ -1,4 +1,4 @@
-module github.com/HiWiSciFi/GoTests
+module github.com/HiWiSciFi/KerncraftWebBackend
 
 go 1.18
 

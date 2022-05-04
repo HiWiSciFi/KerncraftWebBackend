@@ -37,6 +37,10 @@ func main() {
 		status, data := getExampleKernels()
 		c.JSON(status, data)
 	})
+	eng.GET("/examples/kernels/:name", func(c *gin.Context) {
+		status, data := getKernel(c.Param("name"))
+		c.JSON(status, data)
+	})
 
 	// register posts
 	eng.POST("/session", func(c *gin.Context) {
@@ -45,7 +49,9 @@ func main() {
 	})
 
 	err := eng.Run("localhost:8080")
-	log.Fatal(err)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 // Get configurable data [httpStatus, data]
@@ -85,6 +91,14 @@ func getExampleKernels() (int, []string) {
 	}
 	return http.StatusOK, kernelFiles
 }
+func getKernel(kernelName string) (int, string) {
+	bytes, err := ioutil.ReadFile("./kerncraft/examples/kernels/" + kernelName + ".c")
+	if err != nil {
+		return http.StatusNotFound, ""
+	}
+	content := string(bytes)
+	return http.StatusOK, content
+}
 
 // Post session [httpStatus, sessionId]
 // TODO: overflow protection
@@ -100,7 +114,7 @@ func createSession() (int, int) {
 	}
 	if !found {
 		id = len(runningSessions)
-		append(runningSessions, true)
+		runningSessions = append(runningSessions, true)
 	}
 	return http.StatusOK, id
 }

@@ -26,34 +26,26 @@ func main() {
 	}))
 
 	// register getters
-	eng.GET("/examples/machines", func(c *gin.Context) {
-		c.JSON(getExampleMachines())
-	})
-	eng.GET("/available/models", func(c *gin.Context) {
-		c.JSON(getAvailableModels())
-	})
-	eng.GET("/available/units", func(c *gin.Context) {
-		c.JSON(getAvailableUnits())
-	})
-	eng.GET("/available/cachepredictors", func(c *gin.Context) {
-		c.JSON(getAvailablePredictors())
-	})
-	eng.GET("/examples/kernels", func(c *gin.Context) {
-		c.JSON(getExampleKernels())
-	})
-	eng.GET("/examples/kernels/:name", func(c *gin.Context) {
-		c.JSON(getKernel(c.Param("name")))
-	})
+	registerGetters(eng)
 
 	// register posts
 	eng.POST("/session", func(c *gin.Context) {
 		c.JSON(createSession())
 	})
 
-	err := eng.Run("localhost:7248")
+	err := eng.Run("localhost:8081")
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func registerGetters(engine *gin.Engine) {
+	eng.GET("/examples/machines", func(c *gin.Context) { c.JSON(getExampleMachines()) })
+	eng.GET("/available/models", func(c *gin.Context) { c.JSON(getAvailableModels()) })
+	eng.GET("/available/units", func(c *gin.Context) { c.JSON(getAvailableUnits()) })
+	eng.GET("/available/cachepredictors", func(c *gin.Context) { c.JSON(getAvailablePredictors()) })
+	eng.GET("/examples/kernels", func(c *gin.Context) { c.JSON(getExampleKernels()) })
+	eng.GET("/examples/kernels/:name", func(c *gin.Context) { c.JSON(getKernel(c.Param("name"))) })
 }
 
 // Get configurable data [httpStatus, data]

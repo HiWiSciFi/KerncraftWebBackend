@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"log"
@@ -15,6 +16,14 @@ var runningSessions []bool
 func main() {
 	fmt.Println("Starting application...")
 	eng = gin.Default()
+
+	eng.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "PUT", "PATCH"},
+		AllowHeaders:     []string{"Origin"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
 
 	// register getters
 	eng.GET("/examples/machines", func(c *gin.Context) {
@@ -48,7 +57,7 @@ func main() {
 		c.JSON(status, id)
 	})
 
-	err := eng.Run("localhost:8080")
+	err := eng.Run("localhost:7248")
 	if err != nil {
 		log.Fatal(err)
 	}

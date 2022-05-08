@@ -27,34 +27,27 @@ func main() {
 
 	// register getters
 	eng.GET("/examples/machines", func(c *gin.Context) {
-		status, data := getExampleMachines()
-		c.JSON(status, data)
+		c.JSON(getExampleMachines())
 	})
 	eng.GET("/available/models", func(c *gin.Context) {
-		status, data := getAvailableModels()
-		c.JSON(status, data)
+		c.JSON(getAvailableModels())
 	})
 	eng.GET("/available/units", func(c *gin.Context) {
-		status, data := getAvailableUnits()
-		c.JSON(status, data)
+		c.JSON(getAvailableUnits())
 	})
 	eng.GET("/available/cachepredictors", func(c *gin.Context) {
-		status, data := getAvailablePredictors()
-		c.JSON(status, data)
+		c.JSON(getAvailablePredictors())
 	})
 	eng.GET("/examples/kernels", func(c *gin.Context) {
-		status, data := getExampleKernels()
-		c.JSON(status, data)
+		c.JSON(getExampleKernels())
 	})
 	eng.GET("/examples/kernels/:name", func(c *gin.Context) {
-		status, data := getKernel(c.Param("name"))
-		c.JSON(status, data)
+		c.JSON(getKernel(c.Param("name")))
 	})
 
 	// register posts
 	eng.POST("/session", func(c *gin.Context) {
-		status, id := createSession()
-		c.JSON(status, id)
+		c.JSON(createSession())
 	})
 
 	err := eng.Run("localhost:7248")

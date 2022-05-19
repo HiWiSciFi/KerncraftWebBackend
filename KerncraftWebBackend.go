@@ -1,36 +1,50 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 )
 
+type RunConfiguration struct {
+	Kernel           string   `json:"kernel"`
+	Machine          string   `json:"machine"`
+	PerformanceModel string   `json:"performanceModel"`
+	CachePredictor   string   `json:"cachePredictor"`
+	Cores            int      `json:"cores"`
+	VarNames         []string `json:"varNames"`
+	VarValues        []int    `json:"varValues"`
+	Unit             string   `json:"unit"`
+}
+
 var eng *gin.Engine
-var runningSessions []bool
 
 func main() {
 	fmt.Println("Starting application...")
 	eng = gin.Default()
 
-	eng.Use(cors.New(cors.Config{
-		AllowAllOrigins:  true,
-		AllowMethods:     []string{"GET", "PUT", "PATCH"},
-		AllowHeaders:     []string{"Origin"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	}))
+	eng.Use(cors.Default())
 
 	// register getters
 	registerGetters(eng)
 
-	// register posts
-	eng.POST("/session", func(c *gin.Context) {
-		c.JSON(createSession())
+	eng.POST("/test", func(c *gin.Context) {
+		var rc RunConfiguration
+		decoder := json.NewDecoder(c.Request.Body)
+		err := decoder.Decode(&rc)
+		if err != nil {
+			panic(err)
+		}
+		c.JSON(runAnalyzer(rc))
 	})
 
 	err := eng.Run("localhost:8081")
@@ -62,16 +76,20 @@ func getExampleMachines() (int, []string) {
 	}
 	return http.StatusOK, machineFiles
 }
+
 func getAvailableModels() (int, []string) {
-	// TODO: Performance model -> required or not? ASK
+	// TODO: "Performance model" -> required or not? ASK
 	return http.StatusOK, []string{"ECM", "ECMData", "ECMCPU", "RooflineASM", "LC", "PerformanceModel"}
 }
+
 func getAvailableUnits() (int, []string) {
 	return http.StatusOK, []string{"cy/CL", "cy/It", "It/s", "FLOP/s"}
 }
+
 func getAvailablePredictors() (int, []string) {
 	return http.StatusOK, []string{"LC", "SIM"}
 }
+
 func getExampleKernels() (int, []string) {
 	var kernelFiles []string
 	files, err := ioutil.ReadDir("./kerncraft/examples/kernels")
@@ -85,6 +103,7 @@ func getExampleKernels() (int, []string) {
 	}
 	return http.StatusOK, kernelFiles
 }
+
 func getKernel(kernelName string) (int, string) {
 	bytes, err := ioutil.ReadFile("./kerncraft/examples/kernels/" + kernelName + ".c")
 	if err != nil {
@@ -94,21 +113,42 @@ func getKernel(kernelName string) (int, string) {
 	return http.StatusOK, content
 }
 
-// Post session [httpStatus, sessionId]
-// TODO: overflow protection
-func createSession() (int, int) {
-	id := 0
-	found := false
-	for i := 1; i < len(runningSessions); i++ {
-		if !runningSessions[i] {
-			runningSessions[i] = true
-			found = true
-			id = i
-		}
+// Run
+func runAnalyzer(runConfiguration RunConfiguration) (int, string) {
+	// TODO: validate input
+
+	err := os.WriteFile("./tmp/kern.c", []byte(runConfiguration.Kernel), 0755)
+	if err != nil {
+		panic(err)
 	}
-	if !found {
-		id = len(runningSessions)
-		runningSessions = append(runningSessions, true)
+
+	var defines []string = []string{}
+	for i := 0; i < len(runConfiguration.VarNames); i++ {
+		defines = append(defines, "-D", runConfiguration.VarNames[i], strconv.Itoa(runConfiguration.VarValues[i]))
 	}
-	return http.StatusOK, id
+
+	var args []string = []string{}
+	args = append(append(append(args, "./tmp/kern.c",
+		"--machine", "./kerncraft/examples/machine-files/"+runConfiguration.Machine+".yml",
+		"--pmodel", runConfiguration.PerformanceModel),
+		defines...),
+		"-vvv",
+		"--pointer-increment", "auto",
+		"-u", runConfiguration.Unit,
+		"-c", strconv.Itoa(runConfiguration.Cores),
+		"--clean-intermediates",
+		"-P", runConfiguration.CachePredictor,
+		"-C", "gcc")
+
+	cmd := exec.Command("kerncraft", args...)
+	fmt.Println(cmd.String())
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return http.StatusOK, outb.String() + "\n\n\n" + errb.String()
 }

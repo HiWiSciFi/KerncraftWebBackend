@@ -1,18 +1,10 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
-	"io/ioutil"
-	"log"
+	"github.com/gorilla/mux"
+	"html"
 	"net/http"
-	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 )
 
 type RunConfiguration struct {
@@ -26,6 +18,25 @@ type RunConfiguration struct {
 	Unit             string   `json:"unit"`
 }
 
+func main() {
+	r := mux.NewRouter()
+	r.HandleFunc("/products", ProductsHandler)
+	r.HandleFunc("/product/{id}", ProductHandler)
+	http.Handle("/", r)
+}
+
+func ProductsHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Hello, %q", html.EscapeString(r.URL.Path))
+}
+
+func ProductHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Id: %v\n", vars["id"])
+}
+
+/*
 var eng *gin.Engine
 
 func main() {
@@ -152,3 +163,4 @@ func runAnalyzer(runConfiguration RunConfiguration) (int, string) {
 
 	return http.StatusOK, outb.String() + "\n\n\n" + errb.String()
 }
+*/

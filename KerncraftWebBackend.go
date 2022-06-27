@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"html"
+	"io/ioutil"
+	"log"
 	"net/http"
+	"strings"
 )
 
 type RunConfiguration struct {
@@ -19,111 +22,92 @@ type RunConfiguration struct {
 }
 
 func main() {
-	r := mux.NewRouter()
-	r.HandleFunc("/products", ProductsHandler)
-	r.HandleFunc("/product/{id}", ProductHandler)
-	http.Handle("/", r)
-}
-
-func ProductsHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Hello, %q", html.EscapeString(r.URL.Path))
-}
-
-func ProductHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "Id: %v\n", vars["id"])
-}
-
-/*
-var eng *gin.Engine
-
-func main() {
 	fmt.Println("Starting application...")
-	eng = gin.Default()
 
-	eng.Use(cors.Default())
+	r := mux.NewRouter()
 
-	// register getters
-	registerGetters(eng)
+	r.HandleFunc("/examples/machines", machinesHandler)
+	r.HandleFunc("/available/models", modelsHandler)
+	r.HandleFunc("/available/units", unitsHandler)
+	r.HandleFunc("/available/cachepredictors", cachepredictorsHandler)
+	r.HandleFunc("/examples/kernels", kernelsHandler)
+	r.HandleFunc("/examples/kernels/{name}", kernelHandler)
 
-	eng.POST("/test", func(c *gin.Context) {
-		var rc RunConfiguration
-		decoder := json.NewDecoder(c.Request.Body)
-		err := decoder.Decode(&rc)
-		if err != nil {
-			panic(err)
-		}
-		c.JSON(runAnalyzer(rc))
-	})
-
-	err := eng.Run("localhost:8081")
-	if err != nil {
-		log.Fatal(err)
-	}
+	http.Handle("/", r)
+	fmt.Println("Running server on port 8081...")
+	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
-func registerGetters(engine *gin.Engine) {
-	eng.GET("/examples/machines", func(c *gin.Context) { c.JSON(getExampleMachines()) })
-	eng.GET("/available/models", func(c *gin.Context) { c.JSON(getAvailableModels()) })
-	eng.GET("/available/units", func(c *gin.Context) { c.JSON(getAvailableUnits()) })
-	eng.GET("/available/cachepredictors", func(c *gin.Context) { c.JSON(getAvailablePredictors()) })
-	eng.GET("/examples/kernels", func(c *gin.Context) { c.JSON(getExampleKernels()) })
-	eng.GET("/examples/kernels/:name", func(c *gin.Context) { c.JSON(getKernel(c.Param("name"))) })
-}
-
-// Get configurable data [httpStatus, data]
-func getExampleMachines() (int, []string) {
+func machinesHandler(w http.ResponseWriter, r *http.Request) {
 	var machineFiles []string
 	files, err := ioutil.ReadDir("./kerncraft/examples/machine-files")
 	if err != nil {
-		return http.StatusNotFound, machineFiles
+		w.WriteHeader(http.StatusNotFound)
+		arr, _ := json.Marshal(machineFiles)
+		w.Write(arr)
+		return
 	}
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".yml") {
 			machineFiles = append(machineFiles, strings.TrimSuffix(file.Name(), ".yml"))
 		}
 	}
-	return http.StatusOK, machineFiles
+	w.WriteHeader(http.StatusOK)
+	arr, _ := json.Marshal(machineFiles)
+	w.Write(arr)
 }
 
-func getAvailableModels() (int, []string) {
-	// TODO: "Performance model" -> required or not? ASK
-	return http.StatusOK, []string{"ECM", "ECMData", "ECMCPU", "RooflineASM", "LC", "PerformanceModel"}
+func modelsHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	arr, _ := json.Marshal([]string{"ECM", "ECMData", "ECMCPU", "RooflineASM", "LC", "PerformanceModel"})
+	w.Write(arr)
 }
 
-func getAvailableUnits() (int, []string) {
-	return http.StatusOK, []string{"cy/CL", "cy/It", "It/s", "FLOP/s"}
+func unitsHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	arr, _ := json.Marshal([]string{"cy/CL", "cy/It", "It/s", "FLOP/s"})
+	w.Write(arr)
 }
 
-func getAvailablePredictors() (int, []string) {
-	return http.StatusOK, []string{"LC", "SIM"}
+func cachepredictorsHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	arr, _ := json.Marshal([]string{"LC", "SIM"})
+	w.Write(arr)
 }
 
-func getExampleKernels() (int, []string) {
+func kernelsHandler(w http.ResponseWriter, r *http.Request) {
 	var kernelFiles []string
 	files, err := ioutil.ReadDir("./kerncraft/examples/kernels")
 	if err != nil {
-		return http.StatusNotFound, kernelFiles
+		w.WriteHeader(http.StatusNotFound)
+		arr, _ := json.Marshal(kernelFiles)
+		w.Write(arr)
+		return
 	}
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".c") {
 			kernelFiles = append(kernelFiles, strings.TrimSuffix(file.Name(), ".c"))
 		}
 	}
-	return http.StatusOK, kernelFiles
+	w.WriteHeader(http.StatusOK)
+	arr, _ := json.Marshal(kernelFiles)
+	w.Write(arr)
 }
 
-func getKernel(kernelName string) (int, string) {
-	bytes, err := ioutil.ReadFile("./kerncraft/examples/kernels/" + kernelName + ".c")
+func kernelHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	bytes, err := ioutil.ReadFile("./kerncraft/examples/kernels/" + vars["name"] + ".c")
 	if err != nil {
-		return http.StatusNotFound, ""
+		w.WriteHeader(http.StatusNotFound)
+		return
 	}
 	content := string(bytes)
-	return http.StatusOK, content
+	w.WriteHeader(http.StatusOK)
+	arr, _ := json.Marshal(content)
+	w.Write(arr)
 }
 
+/*
 // Run
 func runAnalyzer(runConfiguration RunConfiguration) (int, string) {
 	// TODO: validate input

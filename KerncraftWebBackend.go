@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 type KerncraftConfig struct {
@@ -68,12 +67,12 @@ func main() {
 	r.HandleFunc("/available/cachepredictors", cachepredictorsHandler)
 	r.HandleFunc("/examples/kernels", kernelsHandler)
 	r.HandleFunc("/examples/kernels/{name}", kernelHandler)
-	r.HandleFunc("/analyze", runAnalyzer)
+	r.HandleFunc("/analyze/{folderID}", runAnalyzer)
 
 	fmt.Println("Registering CORS...")
 	http.Handle("/", r)
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:8080"},
+		AllowedOrigins:   []string{"http://localhost:8080", "*"},
 		AllowCredentials: true,
 	})
 	fmt.Println("Running server on port 8081...")
@@ -174,15 +173,52 @@ func kernelHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func runAnalyzer(w http.ResponseWriter, r *http.Request) {
-	id, _, _ := syscall.ForkExec()
 	data, _ := io.ReadAll(r.Body)
 	var configuration RunConfiguration
 	_ = json.Unmarshal(data, &configuration)
 
-	err := os.WriteFile("./tmp/kern.c", []byte(configuration.Kernel), 0755)
+	vars := mux.Vars(r)
+	folderID := vars["folderID"]
+
+	{
+		// validate data
+		_, err := strconv.Atoi(folderID)
+		if err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+	}
+
+	err := os.MkdirAll("./tmp/" + folderID, os.ModePerm)
 	if err != nil {
 		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
+
+	file, err := os.Create("./tmp/" + folderID + "/kernel.c")
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}(file)
+
+	err = os.WriteFile("./tmp/" + folderID + "/kernel.c", []byte(configuration.Kernel), 0755)
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Println("File written (supposedly)")
 
 	var defines []string
 	for i := 0; i < len(configuration.VarNames); i++ {
@@ -190,7 +226,7 @@ func runAnalyzer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var args []string
-	args = append(append(append(args, "./tmp/kern.c",
+	args = append(append(append(args, "./tmp/" + folderID + "/kernel.c",
 		"--machine", "./kerncraft/examples/machine-files/"+configuration.Machine+".yml",
 		"--pmodel", configuration.PerformanceModel),
 		defines...),
@@ -201,7 +237,7 @@ func runAnalyzer(w http.ResponseWriter, r *http.Request) {
 		"--clean-intermediates",
 		"-P", configuration.CachePredictor,
 		"-C", "gcc",
-		"--json", "output.json")
+		"--json", "./tmp/" + folderID + "/output.json")
 
 	cmd := exec.Command("kerncraft", args...)
 	fmt.Println(cmd.String())
@@ -213,9 +249,16 @@ func runAnalyzer(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(errb)
 
 	w.WriteHeader(http.StatusOK)
-	data, _ = ioutil.ReadFile("./kerncraftConfig.json")
-	_, _ = w.Write(data)
+	//data, _ = ioutil.ReadFile("./tmp/" + folderID + "/output.json")
+	//_, _ = w.Write(data)
+	arr, _ := json.Marshal(outb.String() + "\n\n\n" + errb.String())
+	_, _ = w.Write(arr)
+
+	// cleanup
+	err = os.RemoveAll("./tmp/" + folderID)
+	if err != nil {
+		fmt.Println("Error cleaning up temporary folder: " + err.Error())
+	}
 }

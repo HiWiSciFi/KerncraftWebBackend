@@ -1,0 +1,20 @@
+{
+  "performanceModels": [
+    "ECM",
+    "ECMData",
+    "ECMCPU",
+    "RooflineASM",
+    "LC",
+    "PerformanceModel"
+  ],
+  "cachePredictors": [
+    "LC",
+    "SIM"
+  ],
+  "units": [
+    "cy/CL",
+    "cy/It",
+    "It/s",
+    "FLOP/s"
+  ]
+}

@@ -1,14 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 )
+
+type KerncraftConfig struct {
+	PerformanceModels []string `json:"performanceModels"`
+	CachePredictors   []string `json:"cachePredictors"`
+	Units             []string `json:"units"`
+}
+
+var kerncraftConfig KerncraftConfig
 
 type RunConfiguration struct {
 	Kernel           string   `json:"kernel"`
@@ -21,30 +36,60 @@ type RunConfiguration struct {
 	Unit             string   `json:"unit"`
 }
 
+func populateKerncraftConfigDefault() {
+
+}
+
 func main() {
 	fmt.Println("Starting application...")
 
-	r := mux.NewRouter()
+	fmt.Println("Loading Kerncraft config...")
+	{
+		data, err := ioutil.ReadFile("./kerncraftConfig.json")
+		if err != nil {
+			fmt.Println("Error reading kerncraft config file; falling back to default values... Error: " + err.Error())
+			kerncraftConfig.PerformanceModels = []string{"ECM"}
+			kerncraftConfig.CachePredictors = []string{"LC"}
+			kerncraftConfig.Units = []string{"cy/CL"}
+		} else {
+			err = json.Unmarshal(data, &kerncraftConfig)
+			if err != nil {
+				fmt.Println("Error parsing JSON from ./kerncraftConfig.json; falling back to default values... Error: " + err.Error())
+				populateKerncraftConfigDefault()
+			}
+		}
+	}
 
+	fmt.Println("Registering routes...")
+	r := mux.NewRouter()
 	r.HandleFunc("/examples/machines", machinesHandler)
 	r.HandleFunc("/available/models", modelsHandler)
 	r.HandleFunc("/available/units", unitsHandler)
 	r.HandleFunc("/available/cachepredictors", cachepredictorsHandler)
 	r.HandleFunc("/examples/kernels", kernelsHandler)
 	r.HandleFunc("/examples/kernels/{name}", kernelHandler)
+	r.HandleFunc("/analyze", runAnalyzer)
 
+	fmt.Println("Registering CORS...")
 	http.Handle("/", r)
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:8080"},
+		AllowCredentials: true,
+	})
 	fmt.Println("Running server on port 8081...")
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	log.Fatal(http.ListenAndServe(":8081", c.Handler(r)))
 }
 
-func machinesHandler(w http.ResponseWriter, r *http.Request) {
+func machinesHandler(w http.ResponseWriter, _ *http.Request) {
 	var machineFiles []string
 	files, err := ioutil.ReadDir("./kerncraft/examples/machine-files")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		arr, _ := json.Marshal(machineFiles)
-		w.Write(arr)
+		arr, _ := json.Marshal([]string{})
+		_, err = w.Write(arr)
+		if err != nil {
+			fmt.Println("Error writing machines: " + err.Error())
+		}
 		return
 	}
 	for _, file := range files {
@@ -54,34 +99,49 @@ func machinesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	arr, _ := json.Marshal(machineFiles)
-	w.Write(arr)
+	_, err = w.Write(arr)
+	if err != nil {
+		fmt.Println("Error writing machines: " + err.Error())
+	}
 }
 
-func modelsHandler(w http.ResponseWriter, r *http.Request) {
+func modelsHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	arr, _ := json.Marshal([]string{"ECM", "ECMData", "ECMCPU", "RooflineASM", "LC", "PerformanceModel"})
-	w.Write(arr)
+	arr, _ := json.Marshal(kerncraftConfig.PerformanceModels)
+	_, err := w.Write(arr)
+	if err != nil {
+		fmt.Println("Error writing models: " + err.Error())
+	}
 }
 
-func unitsHandler(w http.ResponseWriter, r *http.Request) {
+func unitsHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	arr, _ := json.Marshal([]string{"cy/CL", "cy/It", "It/s", "FLOP/s"})
-	w.Write(arr)
+	arr, _ := json.Marshal(kerncraftConfig.Units)
+	_, err := w.Write(arr)
+	if err != nil {
+		fmt.Println("Error writing units: " + err.Error())
+	}
 }
 
-func cachepredictorsHandler(w http.ResponseWriter, r *http.Request) {
+func cachepredictorsHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	arr, _ := json.Marshal([]string{"LC", "SIM"})
-	w.Write(arr)
+	arr, _ := json.Marshal(kerncraftConfig.CachePredictors)
+	_, err := w.Write(arr)
+	if err != nil {
+		fmt.Println("Error writing cache predictors: " + err.Error())
+	}
 }
 
-func kernelsHandler(w http.ResponseWriter, r *http.Request) {
+func kernelsHandler(w http.ResponseWriter, _ *http.Request) {
 	var kernelFiles []string
 	files, err := ioutil.ReadDir("./kerncraft/examples/kernels")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		arr, _ := json.Marshal(kernelFiles)
-		w.Write(arr)
+		_, err = w.Write(arr)
+		if err != nil {
+			fmt.Println("Error writing kernel files: " + err.Error())
+		}
 		return
 	}
 	for _, file := range files {
@@ -91,52 +151,61 @@ func kernelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	arr, _ := json.Marshal(kernelFiles)
-	w.Write(arr)
+	_, err = w.Write(arr)
+	if err != nil {
+		fmt.Println("Error writing kernel files: " + err.Error())
+	}
 }
 
 func kernelHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	bytes, err := ioutil.ReadFile("./kerncraft/examples/kernels/" + vars["name"] + ".c")
+	data, err := ioutil.ReadFile("./kerncraft/examples/kernels/" + vars["name"] + ".c")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	content := string(bytes)
+	content := string(data)
 	w.WriteHeader(http.StatusOK)
 	arr, _ := json.Marshal(content)
-	w.Write(arr)
+	_, err = w.Write(arr)
+	if err != nil {
+		fmt.Println("Error writing kernel: " + err.Error())
+	}
 }
 
-/*
-// Run
-func runAnalyzer(runConfiguration RunConfiguration) (int, string) {
-	// TODO: validate input
+func runAnalyzer(w http.ResponseWriter, r *http.Request) {
+	id, _, _ := syscall.ForkExec()
+	data, _ := io.ReadAll(r.Body)
+	var configuration RunConfiguration
+	_ = json.Unmarshal(data, &configuration)
 
-	err := os.WriteFile("./tmp/kern.c", []byte(runConfiguration.Kernel), 0755)
+	err := os.WriteFile("./tmp/kern.c", []byte(configuration.Kernel), 0755)
 	if err != nil {
-		panic(err)
+		fmt.Println(err.Error())
 	}
 
-	var defines []string = []string{}
-	for i := 0; i < len(runConfiguration.VarNames); i++ {
-		defines = append(defines, "-D", runConfiguration.VarNames[i], strconv.Itoa(runConfiguration.VarValues[i]))
+	var defines []string
+	for i := 0; i < len(configuration.VarNames); i++ {
+		defines = append(defines, "-D", configuration.VarNames[i], strconv.Itoa(configuration.VarValues[i]))
 	}
 
-	var args []string = []string{}
+	var args []string
 	args = append(append(append(args, "./tmp/kern.c",
-		"--machine", "./kerncraft/examples/machine-files/"+runConfiguration.Machine+".yml",
-		"--pmodel", runConfiguration.PerformanceModel),
+		"--machine", "./kerncraft/examples/machine-files/"+configuration.Machine+".yml",
+		"--pmodel", configuration.PerformanceModel),
 		defines...),
 		"-vvv",
 		"--pointer-increment", "auto",
-		"-u", runConfiguration.Unit,
-		"-c", strconv.Itoa(runConfiguration.Cores),
+		"-u", configuration.Unit,
+		"-c", strconv.Itoa(configuration.Cores),
 		"--clean-intermediates",
-		"-P", runConfiguration.CachePredictor,
-		"-C", "gcc")
+		"-P", configuration.CachePredictor,
+		"-C", "gcc",
+		"--json", "output.json")
 
 	cmd := exec.Command("kerncraft", args...)
 	fmt.Println(cmd.String())
+
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
@@ -144,7 +213,9 @@ func runAnalyzer(runConfiguration RunConfiguration) (int, string) {
 	if err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println(errb)
 
-	return http.StatusOK, outb.String() + "\n\n\n" + errb.String()
+	w.WriteHeader(http.StatusOK)
+	data, _ = ioutil.ReadFile("./kerncraftConfig.json")
+	_, _ = w.Write(data)
 }
-*/
